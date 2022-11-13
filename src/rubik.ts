@@ -1,27 +1,29 @@
-import * as THREE from 'three'
-import { Main } from './main'
+import * as THREE from "three"
+import { Main } from "./main"
 
 interface CubeConfig {
   x: number
   y: number
   z: number
-  num: number
+  order: number
   len: number
   colors: string[]
 }
 
+type CubeDirection = "R" | "R'" | "U" | "U'" | "F" | "F'" | "L" | "L'" | "D" | "D'" | "B" | "B'"
+
 // 魔方的面
 function face(color: string) {
-  const canvas = document.createElement('canvas')
+  const canvas = document.createElement("canvas")
   canvas.width = 256
   canvas.height = 256
-  const context = canvas.getContext('2d')!
+  const context = canvas.getContext("2d")!
   //画一个宽高都是256的黑色正方形
-  context.fillStyle = 'rgba(0,0,0,1)'
+  context.fillStyle = "rgba(0,0,0,1)"
   context.fillRect(0, 0, 256, 256)
   //在内部用某颜色的16px宽的线再画一个宽高为224的圆角正方形并用改颜色填充
   context.rect(16, 16, 224, 224)
-  context.lineJoin = 'round'
+  context.lineJoin = "round"
   context.lineWidth = 16
   context.fillStyle = color
   context.strokeStyle = color
@@ -31,14 +33,14 @@ function face(color: string) {
 }
 
 function generateCube(config: CubeConfig) {
-  const { x, y, z, num, len, colors } = config
-  let leftUpX = x - (num / 2) * len
-  let leftUpY = y + (num / 2) * len
-  let leftUpZ = z + (num / 2) * len
+  const { x, y, z, order, len, colors } = config
+  let leftUpX = x - (order / 2) * len
+  let leftUpY = y + (order / 2) * len
+  let leftUpZ = z + (order / 2) * len
 
   let cubes = []
-  for (let i = 0; i < num; i++) {
-    for (let j = 0; j < num * num; j++) {
+  for (let i = 0; i < order; i++) {
+    for (let j = 0; j < order * order; j++) {
       const materials = colors.map((color) => {
         const texture = new THREE.Texture(face(color))
         texture.needsUpdate = true
@@ -49,8 +51,8 @@ function generateCube(config: CubeConfig) {
       let cube = new THREE.Mesh(cubegeo, materials)
 
       // 依次计算各个小方块中心点坐标
-      cube.position.x = leftUpX + len / 2 + (j % num) * len
-      cube.position.y = leftUpY - len / 2 - Math.floor(j / num) * len
+      cube.position.x = leftUpX + len / 2 + (j % order) * len
+      cube.position.y = leftUpY - len / 2 - Math.floor(j / order) * len
       cube.position.z = leftUpZ - len / 2 - i * len
       cubes.push(cube)
     }
@@ -58,7 +60,7 @@ function generateCube(config: CubeConfig) {
   return cubes
 }
 
-export class Cube {
+export class Rubik {
   public main: Main
   public cubes: THREE.Mesh[] = []
   public initStatus: any[] = []
@@ -79,12 +81,19 @@ export class Cube {
 
   constructor(config: CubeConfig, main: Main) {
     this.config = config
-    // this.cubes = generateCube(this.config)
+
+    // 六种转动方向向量
+    this.xLine = new THREE.Vector3(1, 0, 0)
+    this.xLine2 = new THREE.Vector3(-1, 0, 0)
+    this.yLine = new THREE.Vector3(0, 1, 0)
+    this.yLine2 = new THREE.Vector3(0, -1, 0)
+    this.zLine = new THREE.Vector3(0, 0, 1)
+    this.zLine2 = new THREE.Vector3(0, 0, -1)
 
     this.main = main
   }
 
-  model(type: string = 'cube') {
+  model(type: string = "rubik") {
     // 以组的方式来加入场景
     this.group = new THREE.Group()
     this.group.name = type
@@ -113,7 +122,7 @@ export class Cube {
     this.group.add(...this.cubes)
 
     // 外层透明正方体 用于检测射线碰撞
-    const width = this.config.num * this.config.len
+    const width = this.config.order * this.config.len
     const cubegeo = new THREE.BoxGeometry(width, width, width)
 
     const cubemat = new THREE.MeshBasicMaterial({
@@ -122,12 +131,12 @@ export class Cube {
       transparent: true,
     })
     this.container = new THREE.Mesh(cubegeo, cubemat)
-    this.container.name = 'coverCube'
+    this.container.name = "coverCube"
     this.group.add(this.container)
 
     // 进行一定的旋转变换保证三个面可见
-    this.group.rotateY((45 / 180) * Math.PI)
-    this.group.rotateOnAxis(new THREE.Vector3(1, 0, 1), (25 / 180) * Math.PI)
+    this.group.rotateY((-45 / 180) * Math.PI)
+    this.group.rotateOnAxis(new THREE.Vector3(-1, 0, 1), (-25 / 180) * Math.PI)
 
     this.main.scene.add(this.group)
 
@@ -152,6 +161,7 @@ export class Cube {
    * 获得自身坐标系的坐标轴在世界坐标系中坐标
    */
   updateCurLocalAxisInWorld() {
+    const center = new THREE.Vector3(0, 0, 0)
     const xPoint = new THREE.Vector3(1, 0, 0)
     const xPoint2 = new THREE.Vector3(-1, 0, 0)
     const yPoint = new THREE.Vector3(0, 1, 0)
@@ -159,8 +169,9 @@ export class Cube {
     const zPoint = new THREE.Vector3(0, 0, 1)
     const zPoint2 = new THREE.Vector3(0, 0, -1)
 
-    const matrix = this.group.matrixWorld
-    this.center.applyMatrix4(matrix)
+    const matrix = this.group.matrixWorld //魔方的在世界坐标系的变换矩阵
+
+    center.applyMatrix4(matrix)
     xPoint.applyMatrix4(matrix)
     xPoint2.applyMatrix4(matrix)
     yPoint.applyMatrix4(matrix)
@@ -168,30 +179,37 @@ export class Cube {
     zPoint.applyMatrix4(matrix)
     zPoint2.applyMatrix4(matrix)
 
-    this.xLine = xPoint.sub(this.center)
-    this.xLine2 = xPoint2.sub(this.center)
-    this.yLine = yPoint.sub(this.center)
-    this.yLine2 = yPoint2.sub(this.center)
-    this.zLine = zPoint.sub(this.center)
-    this.zLine2 = zPoint2.sub(this.center)
+    this.center = center
+    this.xLine = xPoint.sub(center)
+    this.xLine2 = xPoint2.sub(center)
+    this.yLine = yPoint.sub(center)
+    this.yLine2 = yPoint2.sub(center)
+    this.zLine = zPoint.sub(center)
+    this.zLine2 = zPoint2.sub(center)
   }
 
   /**
    * 计算转动方向
    */
-  getDirection(sub: THREE.Vector3, normalize: THREE.Vector3) {
+  getDirection(vector: THREE.Vector3, normalize: THREE.Vector3) {
     this.updateCurLocalAxisInWorld()
-    let direction = 0
 
-    // 判断差向量和x、y、z轴的夹角
-    let xAngle = sub.angleTo(this.xLine)
-    let xAngle2 = sub.angleTo(this.xLine2)
-    let yAngle = sub.angleTo(this.yLine)
-    let yAngle2 = sub.angleTo(this.yLine2)
-    let zAngle = sub.angleTo(this.zLine)
-    let zAngle2 = sub.angleTo(this.zLine2)
+    let direction: CubeDirection | null = null
+
+    // 计算差向量和x、y、z轴的夹角
+    let xAngle = vector.angleTo(this.xLine)
+    let xAngle2 = vector.angleTo(this.xLine2)
+    let yAngle = vector.angleTo(this.yLine)
+    let yAngle2 = vector.angleTo(this.yLine2)
+    let zAngle = vector.angleTo(this.zLine)
+    let zAngle2 = vector.angleTo(this.zLine2)
     let minAngle = Math.min(...[xAngle, xAngle2, yAngle, yAngle2, zAngle, zAngle2]) //最小夹角
 
+    if (minAngle > 0.8) {
+      return null
+    }
+
+    // 根据最小夹角判断转动方向
     let xLine = new THREE.Vector3(1, 0, 0)
     let xLine2 = new THREE.Vector3(-1, 0, 0)
     let yLine = new THREE.Vector3(0, 1, 0)
@@ -200,82 +218,131 @@ export class Cube {
     let zLine2 = new THREE.Vector3(0, 0, -1)
 
     switch (minAngle) {
-      case xAngle:
-        direction = 0 // 向x轴正方向旋转90度（还要区分是绕z轴还是绕y轴）
+      case xAngle: // 向x轴正方向旋转90度
         if (normalize.equals(yLine)) {
-          direction = direction + 0.1 // 绕z轴顺时针
+          direction = "F" // 绕Y轴顺时针转动
         } else if (normalize.equals(yLine2)) {
-          direction = direction + 0.2 // 绕z轴逆时针
+          direction = "U'" // 绕Y轴逆时针
         } else if (normalize.equals(zLine)) {
-          direction = direction + 0.3 // 绕y轴逆时针
-        } else {
-          direction = direction + 0.4 // 绕y轴顺时针
+          direction = "D" // 绕Z轴逆时针
+        } else if (normalize.equals(zLine2)) {
+          direction = "B'" // 绕Z轴顺时针
         }
         break
       case xAngle2:
-        direction = 1 // 向x轴反方向旋转90度
         if (normalize.equals(yLine)) {
-          direction = direction + 0.1
+          direction = "F'"
         } else if (normalize.equals(yLine2)) {
-          direction = direction + 0.2
+          direction = "U'"
         } else if (normalize.equals(zLine)) {
-          direction = direction + 0.3
-        } else {
-          direction = direction + 0.4
+          direction = "D'"
+        } else if (normalize.equals(zLine2)) {
+          direction = "B"
         }
         break
       case yAngle:
-        direction = 2 // 向y轴正方向旋转90度
-        if (normalize.equals(zLine)) {
-          direction = direction + 0.1
+        if (normalize.equals(xLine)) {
+          direction = "R"
+        } else if (normalize.equals(xLine2)) {
+          direction = "L'"
+        } else if (normalize.equals(zLine)) {
+          direction = "F'"
         } else if (normalize.equals(zLine2)) {
-          direction = direction + 0.2
-        } else if (normalize.equals(xLine)) {
-          direction = direction + 0.3
-        } else {
-          direction = direction + 0.4
+          direction = "B"
         }
         break
       case yAngle2:
-        direction = 3 // 向y轴反方向旋转90度
-        if (normalize.equals(zLine)) {
-          direction = direction + 0.1
+        if (normalize.equals(xLine)) {
+          direction = "R'"
+        } else if (normalize.equals(xLine2)) {
+          direction = "L"
+        } else if (normalize.equals(zLine)) {
+          direction = "F"
         } else if (normalize.equals(zLine2)) {
-          direction = direction + 0.2
-        } else if (normalize.equals(xLine)) {
-          direction = direction + 0.3
-        } else {
-          direction = direction + 0.4
+          direction = "B'"
         }
         break
       case zAngle:
-        direction = 4 // 向z轴正方向旋转90度
-        if (normalize.equals(yLine)) {
-          direction = direction + 0.1
+        if (normalize.equals(xLine)) {
+          direction = "R'"
+        } else if (normalize.equals(xLine2)) {
+          direction = "L"
+        } else if (normalize.equals(yLine)) {
+          direction = "U"
         } else if (normalize.equals(yLine2)) {
-          direction = direction + 0.2
-        } else if (normalize.equals(xLine)) {
-          direction = direction + 0.3
-        } else {
-          direction = direction + 0.4
+          direction = "D'"
         }
         break
       case zAngle2:
-        direction = 5 // 向z轴反方向旋转90度
-        if (normalize.equals(yLine)) {
-          direction = direction + 0.1
+        if (normalize.equals(xLine)) {
+          direction = "R"
+        } else if (normalize.equals(xLine2)) {
+          direction = "L'"
+        } else if (normalize.equals(yLine)) {
+          direction = "U'"
         } else if (normalize.equals(yLine2)) {
-          direction = direction + 0.2
-        } else if (normalize.equals(xLine)) {
-          direction = direction + 0.3
-        } else {
-          direction = direction + 0.4
+          direction = "D"
         }
         break
       default:
         break
     }
+    console.log(normalize, direction)
     return direction
+  }
+
+  /**
+   * 根据触摸方块的索引以及滑动方向获得转动元素
+   */
+  getBoxs(index: number, direction: CubeDirection | null) {
+    const targetIndex = index - this.minIndex
+    const numI = Math.floor(targetIndex / 9)
+    const numJ = targetIndex % 9
+    const boxs: THREE.Mesh[] = []
+
+    // console.log(`targetIndex=${targetIndex}`, targetIndex, "numI", numI, "numJ", numJ)
+
+    switch (direction) {
+      case "U":
+      case "U'":
+      case "D":
+      case "D'":
+        this.cubes.forEach((cube) => {
+          const index = cube.userData.index - this.minIndex
+          if (Math.floor(numJ / 3) === Math.floor((index % 9) / 3)) {
+            boxs.push(cube)
+          }
+        })
+
+        break
+      case "R":
+      case "R'":
+      case "L":
+      case "L'":
+        // this.cubes.forEach((cube) => {
+        //   const index = cube.userData.index - this.minIndex
+        //   if (numI === Math.floor(index / 9)) {
+        //     boxs.push(cube)
+        //   }
+        // })
+
+        break
+      case "F":
+      case "F'":
+      case "B":
+      case "B'":
+        // this.cubes.forEach((cube) => {
+        //   const index = cube.userData.index - this.minIndex
+        //   if ((index % 9) % 3 === numJ % 3) {
+        //     boxs.push(cube)
+        //   }
+        // })
+        break
+      default:
+        break
+    }
+
+    return boxs
   }
 
   /**
@@ -323,7 +390,7 @@ export class Cube {
    */
   rotateAnimation(
     elements: THREE.Mesh[],
-    direction: number,
+    direction: CubeDirection | null,
     currentstamp: number, // 当前时间戳
     startstamp: number, // 开始时间戳
     laststamp: number, // 结束时间戳
@@ -347,48 +414,37 @@ export class Cube {
     const yLine = new THREE.Vector3(0, 1, 0)
     const zLine = new THREE.Vector3(0, 0, 1)
 
-    const rad = Math.PI * ((currentstamp - laststamp) / totalTime) // 旋转弧度
+    const rad = (90 / 180) * Math.PI * ((currentstamp - laststamp) / totalTime) // 旋转弧度
 
     switch (direction) {
-      case 0.1:
-      case 1.2:
-      case 2.4:
-      case 3.3:
-        rotateMatrix = this.rotateAroundWorldAxis(origin, zLine, (-90 / 180) * rad)
+      case "U":
+      case "D'":
+        rotateMatrix = this.rotateAroundWorldAxis(origin, yLine, rad)
         break
-      case 0.2:
-      case 1.1:
-      case 2.3:
-      case 3.4:
-        rotateMatrix = this.rotateAroundWorldAxis(origin, zLine, (90 / 180) * rad)
+      case "U'":
+      case "D":
+        rotateMatrix = this.rotateAroundWorldAxis(origin, yLine, -rad)
         break
-      case 0.4:
-      case 1.3:
-      case 4.3:
-      case 5.4:
-        rotateMatrix = this.rotateAroundWorldAxis(origin, yLine, (-90 / 180) * rad)
+      case "R":
+      case "L'":
+        rotateMatrix = this.rotateAroundWorldAxis(origin, xLine, rad)
         break
-      case 1.4:
-      case 0.3:
-      case 4.4:
-      case 5.3:
-        rotateMatrix = this.rotateAroundWorldAxis(origin, yLine, (90 / 180) * rad)
+      case "R'":
+      case "L":
+        rotateMatrix = this.rotateAroundWorldAxis(origin, xLine, -rad)
         break
-      case 2.2:
-      case 3.1:
-      case 4.1:
-      case 5.2:
-        rotateMatrix = this.rotateAroundWorldAxis(origin, xLine, (90 / 180) * rad)
+      case "F":
+      case "B'":
+        rotateMatrix = this.rotateAroundWorldAxis(origin, zLine, rad)
         break
-      case 2.1:
-      case 3.2:
-      case 4.2:
-      case 5.1:
-        rotateMatrix = this.rotateAroundWorldAxis(origin, xLine, (-90 / 180) * rad)
+      case "F'":
+      case "B":
+        rotateMatrix = this.rotateAroundWorldAxis(origin, zLine, -rad)
         break
       default:
         break
     }
+
     elements.forEach((element) => {
       element.applyMatrix4(rotateMatrix)
     })
@@ -414,16 +470,15 @@ export class Cube {
    * 更新位置索引
    */
   updateIndex(elements: THREE.Mesh[]) {
-    for (let i = 0; i < elements.length; i++) {
-      let temp1 = elements[i]
-      for (let j = 0; j < this.initStatus.length; j++) {
-        let temp2 = this.initStatus[j]
+    for (const i in elements) {
+      const element = elements[i]
+      for (const status of this.initStatus) {
         if (
-          Math.abs(temp1.position.x - temp2.x) <= this.config.len / 2 &&
-          Math.abs(temp1.position.y - temp2.y) <= this.config.len / 2 &&
-          Math.abs(temp1.position.z - temp2.z) <= this.config.len / 2
+          Math.abs(element.position.x - status.x) <= this.config.len / 2 &&
+          Math.abs(element.position.y - status.y) <= this.config.len / 2 &&
+          Math.abs(element.position.z - status.z) <= this.config.len / 2
         ) {
-          temp1.userData.index = temp2.userData.index
+          elements[i].userData.index = status.userData.index
           break
         }
       }
@@ -431,78 +486,15 @@ export class Cube {
   }
 
   /**
-   * 根据触摸方块的索引以及滑动方向获得转动元素
-   */
-  getBoxs(index: number, direction: number) {
-    const targetIndex = index - this.minIndex
-    const numI = Math.floor(targetIndex / 9)
-    const numJ = targetIndex % 9
-    const boxs: THREE.Mesh[] = []
-
-    // 根据绘制时的规律判断 no = i*9+j
-    switch (direction) {
-      case 0.1:
-      case 0.2:
-      case 1.1:
-      case 1.2:
-      case 2.3:
-      case 2.4:
-      case 3.3:
-      case 3.4:
-        this.cubes.forEach((cube) => {
-          const index = cube.userData.index - this.minIndex
-          if (numI === Math.floor(index / 9)) {
-            boxs.push(cube)
-          }
-        })
-        break
-      case 0.3:
-      case 0.4:
-      case 1.3:
-      case 1.4:
-      case 4.3:
-      case 4.4:
-      case 5.3:
-      case 5.4:
-        this.cubes.forEach((cube) => {
-          const index = cube.userData.index - this.minIndex
-          if (Math.floor(numJ / 3) === Math.floor((index % 9) / 3)) {
-            boxs.push(cube)
-          }
-        })
-        break
-      case 2.1:
-      case 2.2:
-      case 3.1:
-      case 3.2:
-      case 4.1:
-      case 4.2:
-      case 5.1:
-      case 5.2:
-        this.cubes.forEach((cube) => {
-          const index = cube.userData.index - this.minIndex
-          if ((index % 9) % 3 === numJ % 3) {
-            boxs.push(cube)
-          }
-        })
-        break
-      default:
-        break
-    }
-    return boxs
-  }
-
-  /**
    * 转动魔方
    */
   rotateMove(
     index: number,
-    direction: number,
+    direction: CubeDirection | null,
     totalTime: number = this.defaultTotalTime,
     callback?: Function
   ) {
-    const elements = this.getBoxs(index, direction) // 获得需要转动的元素 9个
-    console.log('box', elements)
+    const elements = this.getBoxs(index, direction) // 获得需要转动的元素
 
     requestAnimationFrame((timestamp) => {
       this.rotateAnimation(elements, direction, timestamp, 0, 0, totalTime, () => {

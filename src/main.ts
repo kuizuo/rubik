@@ -1,14 +1,14 @@
-import './style.css'
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import States from 'three/examples/jsm/libs/stats.module'
+import "./style.css"
+import * as THREE from "three"
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
+import States from "three/examples/jsm/libs/stats.module"
 
 type Nullable<T> = T | null | undefined
 
-import { Cube } from './cube'
+import { Rubik } from "./rubik"
 
 // const container = document.getElementById('app')
-const canvas = document.createElement('canvas')
+const canvas = document.createElement("canvas")
 
 export class Main {
   public width = window.innerWidth
@@ -22,16 +22,15 @@ export class Main {
 
   public center = new THREE.Vector3(0, 0, 0)
 
-  public cube!: Cube
+  public rubik!: Rubik
+  public rubikName = "rubik"
 
   public raycaster = new THREE.Raycaster() // 碰撞射线
   public intersect: Nullable<THREE.Intersection> // 射线碰撞的元素
   public normalize: Nullable<THREE.Vector3> // 滑动平面法向量
-  public startPoint: Nullable<THREE.Vector3 | THREE.Vector2> // 触摸点
-  public movePoint: Nullable<THREE.Vector3 | THREE.Vector2> // 滑动点
+  public startPoint: Nullable<THREE.Vector3> // 触摸点
+  public movePoint: Nullable<THREE.Vector3> // 滑动点
   public isRotating = false //魔方是否正在转动
-
-  public cubeName = 'cube'
 
   public originHeight: number = 0
   public originWidth: number = 0
@@ -41,11 +40,11 @@ export class Main {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: canvas })
     // this.renderer.setPixelRatio(window.devicePixelRatio)
     this.renderer.setSize(this.width, this.height)
-    this.renderer.setClearColor('#ccc')
+    this.renderer.setClearColor("#ccc")
     document.body.appendChild(this.renderer.domElement)
 
     // 相机
-    this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 1, 1000)
+    this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 1, 1500)
     this.camera.position.set(0, 0, 100 / this.camera.aspect) // 设置相机位置
     this.camera.up.set(0, 1, 0)
     this.camera.lookAt(this.center)
@@ -71,18 +70,19 @@ export class Main {
 
     this.scene.add(this.light)
 
-    this.cube = new Cube(
+    this.rubik = new Rubik(
       {
         x: 0,
         y: 0,
         z: 0,
-        num: 3,
+        order: 3,
         len: 10,
-        colors: ['#019d53', '#3d81f7', '#fdcd02', '#ffffff', '#dd422f', '#ff6b02'],
+        colors: ["#dd422f", "#ff6b02", "#fdcd02", "#ffffff", "#3d81f7", "#019d53"],
       },
       this
     )
-    this.cube.model()
+    this.rubik.model(this.rubikName)
+    console.log("rubik init", this.rubik)
 
     // const states = States()
     // document.body.appendChild(states.dom) // 添加性能监控
@@ -99,28 +99,28 @@ export class Main {
 
   initEvent() {
     //监听鼠标事件
-    this.renderer.domElement.addEventListener('mousedown', this.startCube.bind(this))
-    this.renderer.domElement.addEventListener('mousemove', this.moveCube.bind(this))
-    this.renderer.domElement.addEventListener('mouseup', this.stopCube.bind(this))
+    this.renderer.domElement.addEventListener("mousedown", this.startCube.bind(this))
+    this.renderer.domElement.addEventListener("mousemove", this.moveCube.bind(this))
+    this.renderer.domElement.addEventListener("mouseup", this.stopCube.bind(this))
 
     //监听触摸事件
-    this.renderer.domElement.addEventListener('touchstart', this.startCube.bind(this))
-    this.renderer.domElement.addEventListener('touchmove', this.moveCube.bind(this))
-    this.renderer.domElement.addEventListener('touchend', this.stopCube.bind(this))
+    this.renderer.domElement.addEventListener("touchstart", this.startCube.bind(this))
+    this.renderer.domElement.addEventListener("touchmove", this.moveCube.bind(this))
+    this.renderer.domElement.addEventListener("touchend", this.stopCube.bind(this))
 
     //监听窗口变化
-    window.addEventListener('resize', this.onWindowResize.bind(this), false)
+    window.addEventListener("resize", this.onWindowResize.bind(this), false)
   }
 
   startCube(event: TouchEvent | MouseEvent) {
     this.getIntersects(event as TouchEvent & MouseEvent)
 
-    // 方块: 魔方没有处于转动过程中且存在碰撞物体
+    // 方块: 魔方没有处于转动过程中且存在碰撞物体(即点击到了方块)
     if (!this.isRotating && this.intersect) {
       this.startPoint = this.intersect.point //开始转动，设置起始点
     }
 
-    // 视图: 触摸点没在魔方上
+    // 视图: 魔方没有处于转动过程中且不存在碰撞物体(即点击到了方块外)
     // if (!this.isRotating && !this.intersect)
     //   this.startPoint = new THREE.Vector2(event.clientX, event.clientY);
     // }
@@ -128,17 +128,13 @@ export class Main {
 
   moveCube(event: TouchEvent | MouseEvent) {
     this.getIntersects(event as TouchEvent & MouseEvent)
-
     // 方块
     if (!this.isRotating && this.startPoint && this.intersect) {
-      // 滑动点在魔方上且魔方没有转动
       this.movePoint = this.intersect.point
-      if (!this.movePoint.equals(this.startPoint as THREE.Vector3)) {
-        // 触摸点和滑动点不一样则意味着可以得到滑动方向
+      if (!this.movePoint.equals(this.startPoint)) {
         this.rotateRubik()
       }
     }
-
     // 视图
     /*     if (!this.isRotating && this.startPoint && !this.intersect) {//触摸点没在魔方上
           this.movePoint = new THREE.Vector2(event.clientX, event.clientY);
@@ -149,7 +145,7 @@ export class Main {
   }
 
   stopCube(event: TouchEvent | MouseEvent) {
-    this.resetRotateParams()
+    this.resetRotateParams() // 重置参数
   }
 
   /**
@@ -168,12 +164,14 @@ export class Main {
 
     this.raycaster.setFromCamera(mouse, this.camera)
 
-    let intersect = this.scene.children.find((c) => c.name === this.cubeName)
+    let intersect = this.scene.children.find((c) => c.name === this.rubikName)
 
     if (intersect) {
+      // 相交的所有物体
       const intersects = this.raycaster.intersectObjects(intersect.children)
       if (intersects.length >= 2) {
-        if (intersects[0].object.name === 'coverCube') {
+        // 射线与外层透明正方体相交时，即可得到相交的元素（方块）与滑动平面法向量
+        if (intersects[0].object.name === "coverCube") {
           this.intersect = intersects[1]
           this.normalize = intersects[0].face?.normal
         } else {
@@ -181,9 +179,6 @@ export class Main {
           this.normalize = intersects[1].face?.normal
         }
       }
-      // console.log(intersects)
-      // console.log(this.intersect)
-      // console.log(this.normalize)
     }
   }
 
@@ -193,39 +188,17 @@ export class Main {
   rotateRubik() {
     this.isRotating = true // 正在转动
 
-    const sub = this.movePoint!.sub(this.startPoint! as THREE.Vector2 & THREE.Vector3) // 计算滑动方向
-    const direction = this.cube.getDirection(sub as THREE.Vector3, this.normalize as THREE.Vector3) // 计算转动方向
+    const vector = this.movePoint!.sub(this.startPoint! as THREE.Vector2 & THREE.Vector3) // 计算向量 => 滑动方向
+    const direction = this.rubik.getDirection(
+      vector as THREE.Vector3,
+      this.normalize as THREE.Vector3
+    ) // 计算魔方的转动方向
     const id = this.intersect!.object.id // 获取转动的方块的id
 
-    console.log(sub, direction, id)
+    // console.log(id, direction, this.normalize, vector)
 
-    this.cube.rotateMove(id, direction)
+    this.rubik.rotateMove(id, direction)
   }
-
-  //   /**
-  //  * 转动视图
-  //  */
-  //   rotateView() {
-  //     var self = this;
-  //     if (this.startPoint.y < this.touchLine.screenRect.top) {
-  //       this.targetRubik = this.frontRubik;
-  //       this.anotherRubik = this.endRubik;
-  //     } else if (this.startPoint.y > this.touchLine.screenRect.top + this.touchLine.screenRect.height) {
-  //       this.targetRubik = this.endRubik;
-  //       this.anotherRubik = this.frontRubik;
-  //     }
-  //     if (this.targetRubik && this.anotherRubik) {
-  //       this.isRotating = true;//转动标识置为true
-  //       //计算整体转动方向
-  //       var targetType = this.targetRubik.group.childType;
-  //       var cubeIndex = this.getViewRotateCubeIndex(targetType);
-  //       var direction = this.getViewDirection(targetType, this.startPoint, this.movePoint);
-  //       this.targetRubik.rotateMoveWhole(cubeIndex, direction);
-  //       this.anotherRubik.rotateMoveWhole(cubeIndex, direction, function () {
-  //         self.resetRotateParams();
-  //       });
-  //     }
-  //   }
 
   /**
    * 重置魔方转动参数
