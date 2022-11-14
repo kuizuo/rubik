@@ -16,7 +16,7 @@ const setSize = (container: Element, camera: PerspectiveCamera, renderer: WebGLR
   renderer.setSize(container.clientWidth, container.clientHeight)
 
   // set the pixel ratio (for mobile devices)
-  renderer.setPixelRatio(window.devicePixelRatio)
+  // renderer.setPixelRatio(window.devicePixelRatio)
 }
 
 export class Rubiks {
@@ -80,6 +80,18 @@ export class Rubiks {
 
   render() {
     this.renderer.render(this.scene, this.camera)
+  }
+
+  /**
+   * 还原
+   */
+  public restore() {
+    if (this.cube) {
+      this.cube.restore()
+      this.render()
+    } else {
+      console.error("RESTORE_ERROR: this.cube is undefined.")
+    }
   }
 
   // private startAnimation() {
